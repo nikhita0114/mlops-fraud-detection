@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Model file (too large for git)
+model/fraud_model.pkl
+
+# Docker volumes
+grafana_data/
+
+# Virtual environments
+venv/
+.venv/
