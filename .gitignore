@@ -14,7 +14,5 @@ grafana_data/
 venv/
 .venv/
 
-ScreenShots/
-
 minikube-linux-amd64
 kubectl
