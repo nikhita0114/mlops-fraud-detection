@@ -13,3 +13,8 @@ grafana_data/
 # Virtual environments
 venv/
 .venv/
+
+ScreenShots/
+
+minikube-linux-amd64
+kubectl
