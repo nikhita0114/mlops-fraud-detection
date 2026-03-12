@@ -29,17 +29,21 @@ jobs:
           sleep 5
 
       - name: Test health endpoint
-        run: |
-          curl -f http://localhost:8000/health
+        run: curl -f http://localhost:8000/health
 
-      - name: Test prediction endpoint
+      - name: Test prediction with real inputs
         run: |
           curl -f -X POST http://localhost:8000/predict \
             -H "Content-Type: application/json" \
-            -d '{"features": [0.1,0.5,-0.3,1.2,0.8,-0.5,0.3,-1.1,0.6,0.2]}'
+            -d '{
+              "amount": 85000,
+              "time_of_day": 2,
+              "distance_from_home_km": 300,
+              "transactions_today": 7
+            }'
 
       - name: Build Docker image
         run: docker build -t fraud-detection-api .
 
       - name: Success
-        run: echo "✅ All tests passed! Docker image built successfully."
+        run: echo "✅ All tests passed!"
