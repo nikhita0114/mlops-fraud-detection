@@ -7,7 +7,10 @@ from fastapi.responses import PlainTextResponse
 import time
 import os
 
-app = FastAPI(title="Fraud Detection API")
+app = FastAPI(
+    title="Fraud Detection API",
+    description="Detects fraudulent transactions using real-world inputs"
+)
 
 # Train model if it doesn't exist
 def get_model():
@@ -20,10 +23,12 @@ def get_model():
 
         X, y = make_classification(
             n_samples=10000, n_features=10, n_informative=6,
-            weights=[0.95, 0.05], random_state=42
+            weights=[0.7, 0.3], random_state=42
         )
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-        model = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)
+        model = RandomForestClassifier(
+            n_estimators=100, class_weight='balanced', random_state=42
+        )
         model.fit(X_train, y_train)
         os.makedirs("model", exist_ok=True)
         with open(model_path, "wb") as f:
@@ -39,8 +44,64 @@ model = get_model()
 PREDICTIONS = Counter("predictions_total", "Total predictions", ["result"])
 LATENCY = Histogram("prediction_latency_seconds", "Prediction latency")
 
+# Real-world input model
 class Transaction(BaseModel):
-    features: list[float]
+    amount: float               # Transaction amount in ₹
+    time_of_day: int            # Hour of day (0-23)
+    distance_from_home_km: float  # Distance from home in km
+    transactions_today: int     # Number of transactions today
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "amount": 45000.00,
+                "time_of_day": 2,
+                "distance_from_home_km": 250.5,
+                "transactions_today": 8
+            }
+        }
+
+def preprocess(transaction: Transaction) -> np.ndarray:
+    """Convert real-world inputs into model features"""
+
+    amount_normalized = transaction.amount / 100000.0
+    time_normalized = transaction.time_of_day / 23.0
+    distance_normalized = transaction.distance_from_home_km / 1000.0
+    txn_normalized = transaction.transactions_today / 20.0
+
+    # Risk signals
+    is_night = 1.0 if transaction.time_of_day < 6 or transaction.time_of_day > 22 else 0.0
+    is_high_amount = 1.0 if transaction.amount > 50000 else 0.0
+    is_far_from_home = 1.0 if transaction.distance_from_home_km > 100 else 0.0
+    is_many_txns = 1.0 if transaction.transactions_today > 5 else 0.0
+    combined_risk = (is_night + is_high_amount + is_far_from_home + is_many_txns) / 4.0
+    unusual_time_amount = amount_normalized * is_night
+
+    return np.array([[
+        amount_normalized,
+        time_normalized,
+        distance_normalized,
+        txn_normalized,
+        is_night,
+        is_high_amount,
+        is_far_from_home,
+        is_many_txns,
+        combined_risk,
+        unusual_time_amount
+    ]])
+
+def risk_explanation(transaction: Transaction) -> list:
+    """Explain why a transaction is risky"""
+    reasons = []
+    if transaction.time_of_day < 6 or transaction.time_of_day > 22:
+        reasons.append("⚠️ Transaction at unusual hour")
+    if transaction.amount > 50000:
+        reasons.append("⚠️ High transaction amount")
+    if transaction.distance_from_home_km > 100:
+        reasons.append("⚠️ Far from home location")
+    if transaction.transactions_today > 5:
+        reasons.append("⚠️ Many transactions today")
+    return reasons if reasons else ["✅ No risk factors detected"]
 
 @app.get("/health")
 def health():
@@ -49,15 +110,25 @@ def health():
 @app.post("/predict")
 def predict(transaction: Transaction):
     start = time.time()
-    features = np.array(transaction.features).reshape(1, -1)
+
+    features = preprocess(transaction)
     prediction = model.predict(features)[0]
     probability = model.predict_proba(features)[0][1]
+
     result = "fraud" if prediction == 1 else "legitimate"
     PREDICTIONS.labels(result=result).inc()
     LATENCY.observe(time.time() - start)
+
     return {
         "prediction": result,
-        "fraud_probability": round(float(probability), 4)
+        "fraud_probability": f"{round(float(probability) * 100, 1)}%",
+        "risk_factors": risk_explanation(transaction),
+        "transaction_summary": {
+            "amount": f"₹{transaction.amount:,.2f}",
+            "time": f"{transaction.time_of_day}:00 hrs",
+            "distance_from_home": f"{transaction.distance_from_home_km} km",
+            "transactions_today": transaction.transactions_today
+        }
     }
 
 @app.get("/metrics", response_class=PlainTextResponse)
