@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+*.md
+docs/
+drift_simulation.py
+model/train.py
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+terraform/
+k8s/
+monitoring/

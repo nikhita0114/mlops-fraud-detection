@@ -7,19 +7,52 @@ services:
       - "8000:8000"
     volumes:
       - ./model:/app/model
+    networks:
+      - mlops-net
+    # Don't start the API until Prometheus is healthy
+    # (Prometheus scrapes the API, so both need to be up)
+    depends_on:
+      prometheus:
+        condition: service_started
+    # Read non-secret config from .env file (git-ignored)
+    env_file:
+      - .env
+    restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:v2.54.1   # pinned — no surprise upgrades
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring:/etc/prometheus
+      - ./monitoring:/etc/prometheus          # scrape config
+      - prometheus_data:/prometheus           # persist metrics across restarts
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'  # keep 15 days of metrics
+    networks:
+      - mlops-net
+    restart: unless-stopped
 
   grafana:
-    image: grafana/grafana
+    image: grafana/grafana:11.2.0    # pinned
     ports:
       - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+    env_file:
+      - .env                         # GF_SECURITY_ADMIN_PASSWORD lives here, not in source
+    volumes:
+      - grafana_data:/var/lib/grafana   # dashboards & datasources survive restarts
+    networks:
+      - mlops-net
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+# Named volumes — Docker manages the storage, data survives `docker compose down`
+volumes:
+  prometheus_data:
+  grafana_data:
+
+# Explicit network — services are isolated from other Docker networks on the host
+networks:
+  mlops-net:
+    driver: bridge
