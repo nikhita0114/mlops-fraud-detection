@@ -1,0 +1,10 @@
+# Development-only dependencies
+# These are NOT installed in the Docker image — only used locally and in CI
+# Install with: pip install -r requirements-dev.txt
+ 
+# Testing
+pytest==9.0.2
+httpx==0.28.1        # lets TestClient make real HTTP calls to FastAPI
+ 
+# Linting & formatting
+ruff==0.15.6

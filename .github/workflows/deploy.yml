@@ -1,49 +1,109 @@
 name: CI/CD Pipeline
 
+# Trigger on:
+#   push to main   → full pipeline (lint + test + build)
+#   pull_request   → lint + test only (the PR gate)
+#     This means broken code is caught BEFORE it merges to main,
+#     not after. Main branch stays always-deployable.
 on:
   push:
     branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# Minimal token permissions — principle of least privilege in CI
+permissions:
+  contents: read
 
 jobs:
-  test-and-build:
+  # -----------------------------------------------------------------------
+  # Job 1: Lint
+  # Runs first — fast feedback (seconds, not minutes)
+  # If code style is broken, no point running tests
+  # -----------------------------------------------------------------------
+  lint:
+    name: Lint (ruff)
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      # Cache pip downloads — avoids re-downloading on every run
+      # Cache key includes the requirements hash so it invalidates when deps change
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-dev-${{ hashFiles('requirements-dev.txt') }}
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run ruff linter
+        run: ruff check app/ tests/
+
+  # -----------------------------------------------------------------------
+  # Job 2: Test
+  # Runs after lint passes — runs all pytest tests
+  # Uses needs: lint so tests only run if linting passed
+  # -----------------------------------------------------------------------
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    needs: lint        # don't run tests if linting failed
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Separate cache key for prod + dev deps together
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-all-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
+
+      - name: Install all dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Train model
-        run: python3 model/train.py
+        # Model file is gitignored (binary), so we train it fresh in CI
+        # This also tests that the training script itself doesn't crash
+        run: python model/train.py
 
-      - name: Start API
-        run: |
-          uvicorn app.main:app --port 8000 &
-          sleep 5
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short
 
-      - name: Test health endpoint
-        run: curl -f http://localhost:8000/health
+  # -----------------------------------------------------------------------
+  # Job 3: Build Docker image
+  # Only runs on push to main (not on PRs) — no point building on every PR
+  # Only runs if tests passed
+  # -----------------------------------------------------------------------
+  build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    needs: test                          # only build if tests passed
+    if: github.event_name == 'push'     # only on push to main, not PRs
 
-      - name: Test prediction with real inputs
-        run: |
-          curl -f -X POST http://localhost:8000/predict \
-            -H "Content-Type: application/json" \
-            -d '{
-              "amount": 85000,
-              "time_of_day": 2,
-              "distance_from_home_km": 300,
-              "transactions_today": 7
-            }'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t fraud-detection-api .
+        run: docker build -t fraud-detection-api:${{ github.sha }} .
 
-      - name: Success
-        run: echo "✅ All tests passed!"
+      - name: Confirm image was built
+        run: docker images fraud-detection-api
