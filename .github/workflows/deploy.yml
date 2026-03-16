@@ -1,25 +1,24 @@
 name: CI/CD Pipeline
 
 # Trigger on:
-#   push to main   → full pipeline (lint + test + build)
-#   pull_request   → lint + test only (the PR gate)
-#     This means broken code is caught BEFORE it merges to main,
-#     not after. Main branch stays always-deployable.
+#   push to main   → full pipeline (lint + test + scan + push)
+#   pull_request   → lint + test + audit only (the PR gate)
 on:
   push:
     branches: [main, master]
   pull_request:
     branches: [main, master]
 
-# Minimal token permissions — principle of least privilege in CI
+# permissions needed:
+#   contents: read     — checkout code
+#   packages: write    — push image to GHCR
 permissions:
   contents: read
+  packages: write
 
 jobs:
   # -----------------------------------------------------------------------
   # Job 1: Lint
-  # Runs first — fast feedback (seconds, not minutes)
-  # If code style is broken, no point running tests
   # -----------------------------------------------------------------------
   lint:
     name: Lint (ruff)
@@ -34,8 +33,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Cache pip downloads — avoids re-downloading on every run
-      # Cache key includes the requirements hash so it invalidates when deps change
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -50,13 +47,11 @@ jobs:
 
   # -----------------------------------------------------------------------
   # Job 2: Test
-  # Runs after lint passes — runs all pytest tests
-  # Uses needs: lint so tests only run if linting passed
   # -----------------------------------------------------------------------
   test:
     name: Test (pytest)
     runs-on: ubuntu-latest
-    needs: lint        # don't run tests if linting failed
+    needs: lint
 
     steps:
       - name: Checkout code
@@ -67,7 +62,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Separate cache key for prod + dev deps together
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -80,30 +74,96 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Train model
-        # Model file is gitignored (binary), so we train it fresh in CI
-        # This also tests that the training script itself doesn't crash
         run: python model/train.py
 
       - name: Run pytest
         run: pytest tests/ -v --tb=short
 
   # -----------------------------------------------------------------------
-  # Job 3: Build Docker image
-  # Only runs on push to main (not on PRs) — no point building on every PR
-  # Only runs if tests passed
+  # Job 3: Dependency vulnerability scan
+  # Scans requirements.txt for known CVEs BEFORE building the image
+  # Faster feedback than waiting for Trivy — catches Python-specific issues
+  # Runs on PRs too — don't want vulnerable deps merged in
   # -----------------------------------------------------------------------
-  build:
-    name: Build Docker image
+  audit:
+    name: Dependency audit (pip-audit)
     runs-on: ubuntu-latest
-    needs: test                          # only build if tests passed
-    if: github.event_name == 'push'     # only on push to main, not PRs
+    needs: test
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t fraud-detection-api:${{ github.sha }} .
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Confirm image was built
-        run: docker images fraud-detection-api
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Scan dependencies for vulnerabilities
+        # --desc        : show description of each vulnerability
+        # --fix         : show what version fixes it (doesn't auto-fix)
+        # If any vulnerability is found, this step fails and blocks the pipeline
+        run: pip-audit -r requirements.txt --desc
+
+  # -----------------------------------------------------------------------
+  # Job 4: Build, scan, and push Docker image
+  # Only runs on push to main (not PRs)
+  # Only runs if audit passed — no point shipping a vulnerable image
+  # -----------------------------------------------------------------------
+  build-and-push:
+    name: Build, scan & push image
+    runs-on: ubuntu-latest
+    needs: audit                        # only build if deps are clean
+    if: github.event_name == 'push'    # only on push to main, not PRs
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Log in to GitHub Container Registry using the automatic GITHUB_TOKEN
+      # No secrets to manage — GitHub provides this token automatically
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Extract metadata for image tags
+      # This produces two tags automatically:
+      #   ghcr.io/nikhita0114/mlops-fraud-detection:abc1234  (git SHA — permanent)
+      #   ghcr.io/nikhita0114/mlops-fraud-detection:main     (branch — moves forward)
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+
+      # Build the image and push it to GHCR in one step
+      # Uses Docker Buildx for better caching and multi-platform support
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # Scan the pushed image for CVEs using Trivy
+      # Runs AFTER push so it scans the exact image in the registry
+      # --exit-code 1 means the job FAILS if CRITICAL vulnerabilities are found
+      # This doesn't unpush the image, but it fails the pipeline visibly
+      - name: Scan image for CVEs (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:main
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+          ignore-unfixed: true   # ignore CVEs with no fix available yet
