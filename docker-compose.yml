@@ -40,10 +40,10 @@ services:
     env_file:
       - .env                         # GF_SECURITY_ADMIN_PASSWORD lives here, not in source
     volumes:
-      - grafana_data:/var/lib/grafana                                              # already there
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources    # ADD THIS
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards      # ADD THIS
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards               # ADD THIS
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards  # dashboard.yml lives here
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards            # fraud-api.json lives here
     networks:
       - mlops-net
     depends_on:
