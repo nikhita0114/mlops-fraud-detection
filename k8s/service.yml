@@ -1,12 +1,19 @@
+# ClusterIP — internal only, not directly reachable from outside the cluster.
+# External traffic comes in via the Ingress controller (see ingress.yml).
+# This is the correct pattern for production — Ingress is the single entry point.
 apiVersion: v1
 kind: Service
 metadata:
   name: fraud-detection-service
-spec:
-  selector:
+  namespace: mlops-prod
+  labels:
     app: fraud-detection
+spec:
+  type: ClusterIP              # internal only — was NodePort (wrong for production)
+  selector:
+    app: fraud-detection       # routes to all pods with this label
   ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 8000
-  type: NodePort
+  - name: http
+    protocol: TCP
+    port: 80                   # port the service listens on (inside the cluster)
+    targetPort: 8000           # port the container listens on

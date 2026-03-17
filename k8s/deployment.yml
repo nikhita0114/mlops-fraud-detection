@@ -2,27 +2,65 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: fraud-detection-api
+  namespace: mlops-prod          # isolated from default namespace
   labels:
     app: fraud-detection
+    version: "1.0"
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: fraud-detection
+  # Rolling update strategy — replaces pods one at a time, zero downtime
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0    # never take a pod down before a new one is ready
+      maxSurge: 1          # spin up 1 extra pod during the update
   template:
     metadata:
       labels:
         app: fraud-detection
+        version: "1.0"
     spec:
+      # Pod-level security — applies to all containers in the pod
+      securityContext:
+        runAsNonRoot: true           # reject any image trying to run as root
+        runAsUser: 1000              # run as UID 1000 (our appuser)
+        runAsGroup: 1000
+        fsGroup: 1000                # files created by the pod belong to GID 1000
+
       containers:
       - name: fraud-api
-        image: fraud-detection-api:latest
-        imagePullPolicy: Never
+        # Pull from GHCR — the image pushed by CI
+        # Replace 'nikhita0114' with your actual GitHub username
+        image: ghcr.io/nikhita0114/mlops-fraud-detection:main
+        imagePullPolicy: Always      # always pull — ensures latest pushed image runs
+
         ports:
         - containerPort: 8000
+          name: http
+
+        # Container-level security context
+        securityContext:
+          allowPrivilegeEscalation: false  # can't gain more privileges than parent
+          readOnlyRootFilesystem: true     # filesystem is read-only — limits attack surface
+          capabilities:
+            drop: ["ALL"]                  # drop all Linux capabilities (NET_RAW, etc.)
+
+        # Inject non-sensitive config from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: fraud-api-config
+
+        # Inject sensitive config from Secret
         env:
-        - name: PORT
-          value: "8000"
+        - name: API_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: fraud-api-secret
+              key: API_SECRET_KEY
+
         resources:
           requests:
             memory: "256Mi"
@@ -30,15 +68,43 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+
+        # Liveness probe — is the container alive?
+        # If this fails repeatedly, K8s restarts the pod
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 30    # wait 30s before first check (model loading time)
           periodSeconds: 10
+          failureThreshold: 3        # restart after 3 consecutive failures
+
+        # Readiness probe — is the container ready to receive traffic?
+        # If this fails, K8s removes the pod from the load balancer (no traffic sent)
+        # but does NOT restart it — it just waits
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 5
+          failureThreshold: 3
+
+        # Startup probe — gives the app extra time to start before liveness kicks in
+        # Prevents liveness from killing a slow-starting pod
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          failureThreshold: 12       # allow up to 12 * 10s = 2 minutes to start
+          periodSeconds: 10
+
+        # Writable temp directory — needed because readOnlyRootFilesystem: true
+        # Without this, the app can't write temp files (some libraries need this)
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+
+      volumes:
+      - name: tmp
+        emptyDir: {}                 # ephemeral — wiped when pod is deleted

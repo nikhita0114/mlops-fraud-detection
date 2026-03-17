@@ -1,0 +1,25 @@
+# PodDisruptionBudget — tells Kubernetes the minimum number of pods
+# that must stay running during voluntary disruptions:
+#   - Rolling updates
+#   - Node drains (maintenance)
+#   - Cluster upgrades
+#
+# Without this: K8s could terminate all 2 pods simultaneously → full outage
+# With this: K8s must keep at least 1 pod running at all times
+#
+# Note: this only applies to VOLUNTARY disruptions (planned).
+# Node crashes (involuntary) are not controlled by PDB.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fraud-detection-pdb
+  namespace: mlops-prod
+  labels:
+    app: fraud-detection
+spec:
+  # minAvailable: 1 means "at least 1 pod must be running at all times"
+  # With 2 replicas, this means K8s can only terminate 1 pod at a time
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: fraud-detection

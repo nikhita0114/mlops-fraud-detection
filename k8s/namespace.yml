@@ -1,0 +1,10 @@
+# Namespace isolates all our resources from other apps in the cluster.
+# Apply this FIRST before any other manifest.
+# All other manifests reference: namespace: mlops-prod
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlops-prod
+  labels:
+    app: fraud-detection
+    environment: production
