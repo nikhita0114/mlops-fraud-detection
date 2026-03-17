@@ -7,7 +7,6 @@ from fastapi.responses import PlainTextResponse
 import time
 import os
 import logging
-import json
 from pythonjsonlogger.json import JsonFormatter
 
 # -------------------------------------------------------------------
