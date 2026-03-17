@@ -2,12 +2,14 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import pickle
 import numpy as np
-from prometheus_client import Counter, Histogram, generate_latest
+from prometheus_client import Counter, Histogram, Gauge, generate_latest
 from fastapi.responses import PlainTextResponse
 import time
 import os
 import logging
+from collections import deque
 from pythonjsonlogger.json import JsonFormatter
+from app.drift import run_drift_report, FEATURE_NAMES
 
 # -------------------------------------------------------------------
 # Structured JSON logging setup
@@ -64,6 +66,16 @@ logger.info("model_loaded", extra={"status": "ready"})
 # Prometheus metrics
 PREDICTIONS = Counter("predictions_total", "Total predictions", ["result"])
 LATENCY = Histogram("prediction_latency_seconds", "Prediction latency")
+
+# Drift detection gauge — 1.0 = drift detected, 0.0 = no drift
+# Updated every time /drift-report is called
+# Prometheus scrapes this and Grafana graphs it over time
+DRIFT_DETECTED = Gauge("drift_detected", "Data drift detected", ["feature"])
+
+# Rolling window of recent transactions for drift analysis
+# deque with maxlen automatically drops old entries when full
+# 100 samples gives statistically meaningful drift tests
+PREDICTION_WINDOW: deque = deque(maxlen=100)
 
 # Real-world input model
 class Transaction(BaseModel):
@@ -142,6 +154,15 @@ def predict(transaction: Transaction):
     PREDICTIONS.labels(result=result).inc()
     LATENCY.observe(latency)
 
+    # Store transaction in rolling window for drift detection
+    # Only store raw input features — not predictions (avoids feedback loops)
+    PREDICTION_WINDOW.append({
+        "amount": transaction.amount,
+        "time_of_day": transaction.time_of_day,
+        "distance_from_home_km": transaction.distance_from_home_km,
+        "transactions_today": transaction.transactions_today,
+    })
+
     # Structured log — every prediction is logged with all relevant fields
     # This makes it queryable: "show me all fraud predictions > ₹50,000"
     logger.info(
@@ -154,6 +175,7 @@ def predict(transaction: Transaction):
             "distance_from_home_km": transaction.distance_from_home_km,
             "transactions_today": transaction.transactions_today,
             "latency_ms": round(latency * 1000, 2),
+            "window_size": len(PREDICTION_WINDOW),
         }
     )
 
@@ -168,6 +190,38 @@ def predict(transaction: Transaction):
             "transactions_today": transaction.transactions_today
         }
     }
+
+@app.get("/drift-report")
+def drift_report():
+    """
+    Compare recent transactions against the training distribution.
+
+    Returns a drift report showing which features have drifted and by how much.
+    Call this endpoint periodically (e.g. every 5 minutes via a cron job or
+    Prometheus scrape) to monitor for distribution shift in production.
+
+    Requires at least 10 predictions in the window before returning meaningful results.
+    """
+    report = run_drift_report(list(PREDICTION_WINDOW))
+
+    # Update Prometheus gauges so Grafana can graph drift over time
+    for feature in FEATURE_NAMES:
+        feature_drift = report["per_feature"].get(feature, {})
+        drift_value = 1.0 if feature_drift.get("drift_detected", False) else 0.0
+        DRIFT_DETECTED.labels(feature=feature).set(drift_value)
+
+    logger.info(
+        "drift_report_generated",
+        extra={
+            "drift_detected": report["drift_detected"],
+            "drifted_features": report["drifted_features"],
+            "share_drifted": report["share_drifted"],
+            "window_size": report["current_window_size"],
+        }
+    )
+
+    return report
+
 
 @app.get("/metrics", response_class=PlainTextResponse)
 def metrics():
