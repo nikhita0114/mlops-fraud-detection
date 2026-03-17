@@ -1,0 +1,112 @@
+{
+    "title": "Fraud Detection API",
+    "uid": "fraud-api-dashboard",
+    "timezone": "browser",
+    "refresh": "10s",
+    "schemaVersion": 38,
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate (req/sec)",
+        "type": "stat",
+        "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+        "targets": [{
+          "expr": "rate(predictions_total[1m])",
+          "legendFormat": "requests/sec"
+        }],
+        "options": { "colorMode": "background", "graphMode": "area" },
+        "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 5 },
+            { "color": "red", "value": 20 }
+          ]}}}
+      },
+      {
+        "id": 2,
+        "title": "Fraud Rate (%)",
+        "type": "stat",
+        "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+        "targets": [{
+          "expr": "rate(predictions_total{result=\"fraud\"}[5m]) / rate(predictions_total[5m]) * 100",
+          "legendFormat": "fraud %"
+        }],
+        "options": { "colorMode": "background" },
+        "fieldConfig": { "defaults": { "unit": "percent", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 20 },
+            { "color": "red", "value": 50 }
+          ]}}}
+      },
+      {
+        "id": 3,
+        "title": "P95 Prediction Latency (ms)",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+        "targets": [{
+          "expr": "histogram_quantile(0.95, rate(prediction_latency_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p95 latency"
+        }],
+        "options": { "colorMode": "background" },
+        "fieldConfig": { "defaults": { "unit": "ms", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 200 },
+            { "color": "red", "value": 500 }
+          ]}}}
+      },
+      {
+        "id": 4,
+        "title": "Total Predictions",
+        "type": "stat",
+        "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+        "targets": [{
+          "expr": "sum(predictions_total)",
+          "legendFormat": "total"
+        }],
+        "options": { "colorMode": "value", "graphMode": "area" },
+        "fieldConfig": { "defaults": { "unit": "short" }}
+      },
+      {
+        "id": 5,
+        "title": "Predictions Over Time",
+        "type": "timeseries",
+        "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(predictions_total{result=\"fraud\"}[1m])",
+            "legendFormat": "fraud"
+          },
+          {
+            "expr": "rate(predictions_total{result=\"legitimate\"}[1m])",
+            "legendFormat": "legitimate"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "reqps" }},
+        "options": { "legend": { "displayMode": "list", "placement": "bottom" }}
+      },
+      {
+        "id": 6,
+        "title": "Prediction Latency Distribution",
+        "type": "timeseries",
+        "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(prediction_latency_seconds_bucket[5m])) * 1000",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(prediction_latency_seconds_bucket[5m])) * 1000",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(prediction_latency_seconds_bucket[5m])) * 1000",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ms" }},
+        "options": { "legend": { "displayMode": "list", "placement": "bottom" }}
+      }
+    ]
+  }

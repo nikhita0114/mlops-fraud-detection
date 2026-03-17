@@ -40,7 +40,10 @@ services:
     env_file:
       - .env                         # GF_SECURITY_ADMIN_PASSWORD lives here, not in source
     volumes:
-      - grafana_data:/var/lib/grafana   # dashboards & datasources survive restarts
+      - grafana_data:/var/lib/grafana                                              # already there
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources    # ADD THIS
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards      # ADD THIS
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards               # ADD THIS
     networks:
       - mlops-net
     depends_on:

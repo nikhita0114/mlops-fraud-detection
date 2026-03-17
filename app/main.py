@@ -6,6 +6,27 @@ from prometheus_client import Counter, Histogram, generate_latest
 from fastapi.responses import PlainTextResponse
 import time
 import os
+import logging
+import json
+from pythonjsonlogger.json import JsonFormatter
+
+# -------------------------------------------------------------------
+# Structured JSON logging setup
+# Every log line is a JSON object — parseable by Loki, CloudWatch, etc.
+# Format: {"timestamp": "...", "level": "INFO", "message": "...", ...}
+# -------------------------------------------------------------------
+logger = logging.getLogger("fraud_api")
+logger.setLevel(logging.INFO)
+
+# Remove default handlers to avoid duplicate logs
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = JsonFormatter(
+        fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 app = FastAPI(
     title="Fraud Detection API",
@@ -16,7 +37,7 @@ app = FastAPI(
 def get_model():
     model_path = "model/fraud_model.pkl"
     if not os.path.exists(model_path):
-        print("Model not found, training now...")
+        logger.info("model_not_found", extra={"action": "training", "path": model_path})
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.datasets import make_classification
         from sklearn.model_selection import train_test_split
@@ -33,12 +54,13 @@ def get_model():
         os.makedirs("model", exist_ok=True)
         with open(model_path, "wb") as f:
             pickle.dump(model, f)
-        print("✅ Model trained and saved!")
+        logger.info("model_trained", extra={"action": "saved", "path": model_path})
 
     with open(model_path, "rb") as f:
         return pickle.load(f)
 
 model = get_model()
+logger.info("model_loaded", extra={"status": "ready"})
 
 # Prometheus metrics
 PREDICTIONS = Counter("predictions_total", "Total predictions", ["result"])
@@ -116,8 +138,25 @@ def predict(transaction: Transaction):
     probability = model.predict_proba(features)[0][1]
 
     result = "fraud" if prediction == 1 else "legitimate"
+    latency = time.time() - start
+
     PREDICTIONS.labels(result=result).inc()
-    LATENCY.observe(time.time() - start)
+    LATENCY.observe(latency)
+
+    # Structured log — every prediction is logged with all relevant fields
+    # This makes it queryable: "show me all fraud predictions > ₹50,000"
+    logger.info(
+        "prediction_made",
+        extra={
+            "result": result,
+            "fraud_probability": round(float(probability), 4),
+            "amount": transaction.amount,
+            "time_of_day": transaction.time_of_day,
+            "distance_from_home_km": transaction.distance_from_home_km,
+            "transactions_today": transaction.transactions_today,
+            "latency_ms": round(latency * 1000, 2),
+        }
+    )
 
     return {
         "prediction": result,

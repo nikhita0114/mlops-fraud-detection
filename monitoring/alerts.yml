@@ -1,0 +1,57 @@
+groups:
+  - name: fraud-detection-alerts
+    interval: 15s
+    rules:
+
+      - alert: FraudAPIDown
+        expr: absent(predictions_total)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Fraud Detection API is down"
+          description: >
+            No predictions_total metric found for 1 minute.
+            The API may be crashed or unreachable.
+
+      - alert: HighFraudRate
+        expr: >
+          rate(predictions_total{result="fraud"}[5m])
+          /
+          rate(predictions_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High fraud detection rate"
+          description: >
+            Fraud rate has been above 50% for 2 minutes.
+            Current rate: {{ $value | humanizePercentage }}.
+            This may indicate model drift or an active attack pattern.
+
+      - alert: HighPredictionLatency
+        expr: >
+          histogram_quantile(0.95,
+            rate(prediction_latency_seconds_bucket[5m])
+          ) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High prediction latency"
+          description: >
+            P95 prediction latency has exceeded 500ms for 2 minutes.
+            Current P95: {{ $value | humanizeDuration }}.
+            Check for model loading issues or resource constraints.
+
+      - alert: NoTraffic
+        expr: rate(predictions_total[5m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No traffic reaching the Fraud API"
+          description: >
+            Zero predictions in the last 5 minutes.
+            The API is running but receiving no requests.
+            Check load balancer, Ingress, or upstream services.

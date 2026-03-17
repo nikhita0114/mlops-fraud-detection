@@ -1,7 +1,12 @@
 global:
-  scrape_interval: 15s
+  scrape_interval: 15s      # scrape metrics every 15 seconds
+  evaluation_interval: 15s  # evaluate alert rules every 15 seconds
+
+# Alert rules files — Prometheus loads and evaluates these
+rule_files:
+  - "alerts.yml"
 
 scrape_configs:
   - job_name: 'fraud-api'
     static_configs:
-      - targets: ['api:8000']
+      - targets: ['api:8000']   # 'api' is the docker-compose service name
