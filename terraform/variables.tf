@@ -1,6 +1,22 @@
+# =============================================================================
+# variables.tf — All configurable inputs
+# =============================================================================
+#
+# Variables make Terraform reusable across environments.
+# Set values in terraform.tfvars (git-ignored) or via environment variables:
+#   export TF_VAR_project_id="my-project"
+#
+# This single set of files can create:
+#   - dev cluster:     terraform apply -var="environment=dev"
+#   - staging cluster: terraform apply -var="environment=staging"
+#   - prod cluster:    terraform apply -var="environment=prod"
+# =============================================================================
+
 variable "project_id" {
   description = "GCP project ID — find this in the GCP console"
   type        = string
+  # No default — must be explicitly provided. Avoids accidental deploys
+  # to the wrong project.
 }
 
 variable "region" {
@@ -32,11 +48,15 @@ variable "environment" {
 variable "machine_type" {
   description = "GCE machine type for cluster nodes"
   type        = string
-  default     = "e2-standard-2"
+  default     = "e2-standard-2"   # 2 vCPU, 8GB RAM — enough for the fraud API
+  # Other options:
+  # "e2-medium"      — 1 vCPU, 4GB  (cheaper, fine for dev)
+  # "e2-standard-4"  — 4 vCPU, 16GB (for higher load)
+  # "n2-standard-4"  — 4 vCPU, 16GB (better CPU performance)
 }
 
 variable "min_node_count" {
-  description = "Minimum number of nodes in the node pool"
+  description = "Minimum number of nodes in the node pool (autoscaling lower bound)"
   type        = number
   default     = 1
 
@@ -47,7 +67,7 @@ variable "min_node_count" {
 }
 
 variable "max_node_count" {
-  description = "Maximum number of nodes in the node pool"
+  description = "Maximum number of nodes in the node pool (autoscaling upper bound)"
   type        = number
   default     = 3
 
@@ -58,19 +78,19 @@ variable "max_node_count" {
 }
 
 variable "use_spot_instances" {
-  description = "Use spot/preemptible instances for cost savings"
+  description = "Use spot/preemptible instances for ~60-90% cost savings (can be terminated anytime)"
   type        = bool
-  default     = true
+  default     = true   # fine for dev/staging; set false for prod
 }
 
 variable "model_bucket_location" {
   description = "GCS bucket location for model artifacts"
   type        = string
-  default     = "US"
+  default     = "US"   # multi-region — more expensive but higher availability
 }
 
 variable "artifact_registry_location" {
-  description = "Location for Artifact Registry"
+  description = "Location for Artifact Registry (Docker images)"
   type        = string
   default     = "us-central1"
 }
