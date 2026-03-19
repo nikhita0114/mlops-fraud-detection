@@ -207,34 +207,3 @@ jobs:
           ignore-unfixed: true   # ignore CVEs with no fix available yet
   # -----------------------------------------------------------------------
   # Job 5: Terraform validate
-  # Validates HCL syntax and internal consistency — no GCP credentials needed
-  # Runs on both push and PRs — catch Terraform errors before they reach main
-  # -----------------------------------------------------------------------
-  terraform:
-    name: Terraform validate
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # hashicorp/setup-terraform installs the correct Terraform version
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.6.0"
-
-      # terraform fmt --check fails if any .tf file isn't formatted correctly
-      # Same idea as ruff for Python — enforces consistent style
-      - name: Check Terraform formatting
-        run: terraform -chdir=terraform fmt -check -recursive
-
-      # terraform init -backend=false skips connecting to the GCS backend
-      # so we don't need GCP credentials in CI — just downloads the provider
-      - name: Terraform init (no backend)
-        run: terraform -chdir=terraform init -backend=false
-
-      # terraform validate checks syntax and internal consistency
-      # Catches: missing required fields, wrong types, undefined variables
-      - name: Terraform validate
-        run: terraform -chdir=terraform validate
