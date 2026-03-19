@@ -21,7 +21,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 5.0"   # pinned — same reason we pin pip packages
+      version = "~> 5.0" # pinned — same reason we pin pip packages
     }
     google-beta = {
       source  = "hashicorp/google-beta"
@@ -34,7 +34,7 @@ terraform {
   # The bucket is created manually once (chicken-and-egg problem with state).
   # See storage.tf for the bucket resource definition.
   backend "gcs" {
-    bucket = "fraud-api-tfstate"   # must exist before terraform init
+    bucket = "fraud-api-tfstate" # must exist before terraform init
     prefix = "terraform/state"
   }
 }
@@ -85,9 +85,9 @@ resource "google_container_cluster" "fraud_api" {
   # Maintenance window — allow GKE to auto-upgrade during off-peak hours
   maintenance_policy {
     recurring_window {
-      start_time = "2024-01-01T02:00:00Z"  # 2am UTC
-      end_time   = "2024-01-01T06:00:00Z"  # 6am UTC
-      recurrence = "FREQ=WEEKLY;BYDAY=SA"  # Saturday nights
+      start_time = "2024-01-01T02:00:00Z" # 2am UTC
+      end_time   = "2024-01-01T06:00:00Z" # 6am UTC
+      recurrence = "FREQ=WEEKLY;BYDAY=SA" # Saturday nights
     }
   }
 
@@ -114,9 +114,9 @@ resource "google_container_cluster" "fraud_api" {
 #   - Node auto-upgrade and auto-repair managed by GKE
 
 resource "google_container_node_pool" "fraud_api_nodes" {
-  name       = "${var.environment}-fraud-api-nodes"
-  location   = var.region
-  cluster    = google_container_cluster.fraud_api.name
+  name     = "${var.environment}-fraud-api-nodes"
+  location = var.region
+  cluster  = google_container_cluster.fraud_api.name
 
   # Auto-scaling: scale between min and max based on pod demand
   autoscaling {
@@ -126,12 +126,12 @@ resource "google_container_node_pool" "fraud_api_nodes" {
 
   # Auto-upgrade and auto-repair
   management {
-    auto_repair  = true   # automatically replace unhealthy nodes
-    auto_upgrade = true   # automatically upgrade node Kubernetes version
+    auto_repair  = true # automatically replace unhealthy nodes
+    auto_upgrade = true # automatically upgrade node Kubernetes version
   }
 
   node_config {
-    machine_type = var.machine_type  # e.g. "e2-standard-2"
+    machine_type = var.machine_type # e.g. "e2-standard-2"
 
     # Use spot instances to reduce cost by ~60-90%
     # Not suitable for stateful workloads — fine for stateless API pods
@@ -141,7 +141,7 @@ resource "google_container_node_pool" "fraud_api_nodes" {
     oauth_scopes = [
       "https://www.googleapis.com/auth/logging.write",
       "https://www.googleapis.com/auth/monitoring",
-      "https://www.googleapis.com/auth/devstorage.read_only",  # read model from GCS
+      "https://www.googleapis.com/auth/devstorage.read_only", # read model from GCS
     ]
 
     # Node labels — can be used for pod scheduling (nodeSelector)
@@ -152,7 +152,7 @@ resource "google_container_node_pool" "fraud_api_nodes" {
 
     # Node metadata
     metadata = {
-      disable-legacy-endpoints = "true"   # security best practice
+      disable-legacy-endpoints = "true" # security best practice
     }
 
     # Shielded instance config — protects against rootkit/bootkits

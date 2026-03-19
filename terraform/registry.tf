@@ -22,7 +22,7 @@ resource "google_artifact_registry_repository" "fraud_api" {
   # Vulnerability scanning — automatically scan pushed images for CVEs
   # Works alongside our Trivy scan in CI — defence in depth
   docker_config {
-    immutable_tags = false   # allow overwriting tags (set true for strict prod)
+    immutable_tags = false # allow overwriting tags (set true for strict prod)
   }
 
   labels = {
@@ -39,8 +39,8 @@ resource "google_artifact_registry_repository" "fraud_api" {
     id     = "keep-tagged-releases"
     action = "KEEP"
     condition {
-      tag_state             = "TAGGED"
-      newer_version_count   = 10   # keep last 10 tagged images
+      tag_state           = "TAGGED"
+      newer_version_count = 10 # keep last 10 tagged images
     }
   }
 
@@ -49,7 +49,7 @@ resource "google_artifact_registry_repository" "fraud_api" {
     action = "DELETE"
     condition {
       tag_state  = "UNTAGGED"
-      older_than = "604800s"   # 7 days in seconds
+      older_than = "604800s" # 7 days in seconds
     }
   }
 }

@@ -31,7 +31,7 @@ output "cluster_name" {
 output "cluster_endpoint" {
   description = "GKE cluster API server endpoint"
   value       = google_container_cluster.fraud_api.endpoint
-  sensitive   = true   # marked sensitive — won't print in plain text logs
+  sensitive   = true # marked sensitive — won't print in plain text logs
 }
 
 output "registry_url" {

@@ -20,7 +20,7 @@
 resource "google_storage_bucket" "model_artifacts" {
   name          = "${var.project_id}-${var.environment}-fraud-models"
   location      = var.model_bucket_location
-  force_destroy = var.environment != "prod"   # protect prod bucket from accidental deletion
+  force_destroy = var.environment != "prod" # protect prod bucket from accidental deletion
 
   # Versioning — keeps previous versions of model files
   # Allows rollback to a previous model without retraining
@@ -36,8 +36,8 @@ resource "google_storage_bucket" "model_artifacts" {
       storage_class = "NEARLINE"
     }
     condition {
-      age                   = 30           # days
-      with_state            = "ARCHIVED"   # only apply to non-current versions
+      age        = 30         # days
+      with_state = "ARCHIVED" # only apply to non-current versions
     }
   }
 
@@ -90,10 +90,10 @@ resource "google_storage_bucket_iam_member" "model_writer" {
 resource "google_storage_bucket" "terraform_state" {
   name          = "fraud-api-tfstate"
   location      = "US"
-  force_destroy = false   # NEVER auto-delete the state bucket
+  force_destroy = false # NEVER auto-delete the state bucket
 
   versioning {
-    enabled = true   # keeps state history — essential for recovery
+    enabled = true # keeps state history — essential for recovery
   }
 
   # State files can contain sensitive values — enforce encryption and access control

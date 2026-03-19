@@ -48,7 +48,7 @@ variable "environment" {
 variable "machine_type" {
   description = "GCE machine type for cluster nodes"
   type        = string
-  default     = "e2-standard-2"   # 2 vCPU, 8GB RAM — enough for the fraud API
+  default     = "e2-standard-2" # 2 vCPU, 8GB RAM — enough for the fraud API
   # Other options:
   # "e2-medium"      — 1 vCPU, 4GB  (cheaper, fine for dev)
   # "e2-standard-4"  — 4 vCPU, 16GB (for higher load)
@@ -80,13 +80,13 @@ variable "max_node_count" {
 variable "use_spot_instances" {
   description = "Use spot/preemptible instances for ~60-90% cost savings (can be terminated anytime)"
   type        = bool
-  default     = true   # fine for dev/staging; set false for prod
+  default     = true # fine for dev/staging; set false for prod
 }
 
 variable "model_bucket_location" {
   description = "GCS bucket location for model artifacts"
   type        = string
-  default     = "US"   # multi-region — more expensive but higher availability
+  default     = "US" # multi-region — more expensive but higher availability
 }
 
 variable "artifact_registry_location" {
