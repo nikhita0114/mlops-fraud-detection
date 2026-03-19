@@ -72,8 +72,8 @@ variable "max_node_count" {
   default     = 3
 
   validation {
-    condition     = var.max_node_count >= var.min_node_count
-    error_message = "max_node_count must be >= min_node_count."
+    condition     = var.max_node_count >= 1
+    error_message = "max_node_count must be at least 1."
   }
 }
 
