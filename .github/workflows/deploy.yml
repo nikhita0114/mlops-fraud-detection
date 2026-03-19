@@ -109,14 +109,52 @@ jobs:
         run: pip-audit -r requirements.txt --desc
 
   # -----------------------------------------------------------------------
-  # Job 4: Build, scan, and push Docker image
+  # Job 4: Terraform validate
+  # Checks that all .tf files are syntactically valid and properly formatted
+  # Runs on PRs too — catches IaC issues before they reach main
+  # Does NOT run terraform plan (that requires GCP credentials)
+  # -----------------------------------------------------------------------
+  terraform:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Terraform format check
+        working-directory: terraform
+        # terraform fmt -check fails if any file is not properly formatted
+        # This enforces consistent style across all .tf files
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (local backend)
+        working-directory: terraform
+        # -backend=false skips remote state init (no GCP credentials in CI)
+        # We still get syntax validation without needing cloud access
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        working-directory: terraform
+        # Validates all resource configs are syntactically correct
+        # Catches typos, missing required fields, invalid references
+        run: terraform validate
+
+  # -----------------------------------------------------------------------
+  # Job 5: Build, scan, and push Docker image
   # Only runs on push to main (not PRs)
   # Only runs if audit passed — no point shipping a vulnerable image
   # -----------------------------------------------------------------------
   build-and-push:
     name: Build, scan & push image
     runs-on: ubuntu-latest
-    needs: audit                        # only build if deps are clean
+    needs: [audit, terraform]           # only build if deps are clean and IaC is valid
     if: github.event_name == 'push'    # only on push to main, not PRs
 
     steps:
@@ -167,3 +205,36 @@ jobs:
           exit-code: '1'
           severity: CRITICAL
           ignore-unfixed: true   # ignore CVEs with no fix available yet
+  # -----------------------------------------------------------------------
+  # Job 5: Terraform validate
+  # Validates HCL syntax and internal consistency — no GCP credentials needed
+  # Runs on both push and PRs — catch Terraform errors before they reach main
+  # -----------------------------------------------------------------------
+  terraform:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # hashicorp/setup-terraform installs the correct Terraform version
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      # terraform fmt --check fails if any .tf file isn't formatted correctly
+      # Same idea as ruff for Python — enforces consistent style
+      - name: Check Terraform formatting
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      # terraform init -backend=false skips connecting to the GCS backend
+      # so we don't need GCP credentials in CI — just downloads the provider
+      - name: Terraform init (no backend)
+        run: terraform -chdir=terraform init -backend=false
+
+      # terraform validate checks syntax and internal consistency
+      # Catches: missing required fields, wrong types, undefined variables
+      - name: Terraform validate
+        run: terraform -chdir=terraform validate

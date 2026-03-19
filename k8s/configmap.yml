@@ -1,0 +1,19 @@
+# ConfigMap stores non-sensitive configuration.
+# Values here are injected into the pod as environment variables.
+# Safe to commit — no secrets here.
+# To update config: edit this file and run kubectl apply -f k8s/configmap.yml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fraud-api-config
+  namespace: mlops-prod
+  labels:
+    app: fraud-detection
+data:
+  # Application settings
+  PORT: "8000"
+  LOG_LEVEL: "info"
+  APP_ENV: "production"
+
+  # Model settings
+  MODEL_PATH: "/app/model/fraud_model.pkl"

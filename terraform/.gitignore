@@ -1,0 +1,26 @@
+# Terraform state files — NEVER commit these
+# State contains sensitive data (IPs, credentials, resource IDs)
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+
+# Terraform working directory — downloaded providers (~hundreds of MB)
+.terraform/
+.terraform.lock.hcl
+
+# Variable files with real values — may contain secrets
+terraform.tfvars
+*.auto.tfvars
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override files (local dev overrides)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Generated plan files
+*.tfplan
