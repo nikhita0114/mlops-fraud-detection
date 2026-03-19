@@ -1,184 +1,99 @@
 name: CI/CD Pipeline
 
-# Trigger on:
-#   push to main   → full pipeline (lint + test + scan + push)
-#   pull_request   → lint + test + audit only (the PR gate)
 on:
   push:
     branches: [main, master]
   pull_request:
     branches: [main, master]
 
-# permissions needed:
-#   contents: read     — checkout code
-#   packages: write    — push image to GHCR
 permissions:
   contents: read
   packages: write
 
 jobs:
-  # -----------------------------------------------------------------------
-  # Job 1: Lint
-  # -----------------------------------------------------------------------
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Cache pip
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: pip-dev-${{ hashFiles('requirements-dev.txt') }}
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app/ tests/
 
-      - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
-
-      - name: Run ruff linter
-        run: ruff check app/ tests/
-
-  # -----------------------------------------------------------------------
-  # Job 2: Test
-  # -----------------------------------------------------------------------
   test:
     name: Test (pytest)
     runs-on: ubuntu-latest
     needs: lint
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Cache pip
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: pip-all-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
-
-      - name: Install all dependencies
+      - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+      - run: python model/train.py
+      - run: pytest tests/ -v --tb=short
 
-      - name: Train model
-        run: python model/train.py
-
-      - name: Run pytest
-        run: pytest tests/ -v --tb=short
-
-  # -----------------------------------------------------------------------
-  # Job 3: Dependency vulnerability scan
-  # Scans requirements.txt for known CVEs BEFORE building the image
-  # Faster feedback than waiting for Trivy — catches Python-specific issues
-  # Runs on PRs too — don't want vulnerable deps merged in
-  # -----------------------------------------------------------------------
   audit:
     name: Dependency audit (pip-audit)
     runs-on: ubuntu-latest
     needs: test
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install pip-audit
-        run: pip install pip-audit
-
-      - name: Scan dependencies for vulnerabilities
-        # --desc        : show description of each vulnerability
-        # --fix         : show what version fixes it (doesn't auto-fix)
-        # If any vulnerability is found, this step fails and blocks the pipeline
-        # Ignoring nltk CVEs in wordnet_app — not used by fraud API, no fix available yet
+      - run: pip install pip-audit
+      - name: Scan dependencies
         run: >-
           pip-audit -r requirements.txt --desc
           --ignore-vuln GHSA-rf74-v2fm-23pw
           --ignore-vuln CVE-2026-33230
           --ignore-vuln CVE-2026-33231
 
-  # -----------------------------------------------------------------------
-  # Job 4: Terraform validate
-  # Checks that all .tf files are syntactically valid and properly formatted
-  # Runs on PRs too — catches IaC issues before they reach main
-  # Does NOT run terraform plan (that requires GCP credentials)
-  # -----------------------------------------------------------------------
   terraform:
     name: Terraform validate
     runs-on: ubuntu-latest
     needs: test
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.6.0"
-
-      - name: Terraform format check
+      - name: Terraform format
         working-directory: terraform
-        # terraform fmt -check fails if any file is not properly formatted
-        # This enforces consistent style across all .tf files
         run: terraform fmt -recursive
-
-      - name: Terraform init (local backend)
+      - name: Terraform init
         working-directory: terraform
-        # -backend=false skips remote state init (no GCP credentials in CI)
-        # We still get syntax validation without needing cloud access
         run: terraform init -backend=false
-
       - name: Terraform validate
         working-directory: terraform
-        # Validates all resource configs are syntactically correct
-        # Catches typos, missing required fields, invalid references
         run: terraform validate
 
-  # -----------------------------------------------------------------------
-  # Job 5: Build, scan, and push Docker image
-  # Only runs on push to main (not PRs)
-  # Only runs if audit passed — no point shipping a vulnerable image
-  # -----------------------------------------------------------------------
   build-and-push:
     name: Build, scan & push image
     runs-on: ubuntu-latest
-    needs: [audit, terraform]           # only build if deps are clean and IaC is valid
-    if: github.event_name == 'push'    # only on push to main, not PRs
-
+    needs: [audit, terraform]
+    if: github.event_name == 'push'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Log in to GitHub Container Registry using the automatic GITHUB_TOKEN
-      # No secrets to manage — GitHub provides this token automatically
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Extract metadata for image tags
-      # This produces two tags automatically:
-      #   ghcr.io/nikhita0114/mlops-fraud-detection:abc1234  (git SHA — permanent)
-      #   ghcr.io/nikhita0114/mlops-fraud-detection:main     (branch — moves forward)
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -187,9 +102,6 @@ jobs:
           tags: |
             type=sha,format=short
             type=ref,event=branch
-
-      # Build the image and push it to GHCR in one step
-      # Uses Docker Buildx for better caching and multi-platform support
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
@@ -197,11 +109,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-      # Scan the pushed image for CVEs using Trivy
-      # Runs AFTER push so it scans the exact image in the registry
-      # --exit-code 1 means the job FAILS if CRITICAL vulnerabilities are found
-      # This doesn't unpush the image, but it fails the pipeline visibly
       - name: Scan image for CVEs (Trivy)
         uses: aquasecurity/trivy-action@master
         with:
@@ -209,37 +116,4 @@ jobs:
           format: table
           exit-code: '1'
           severity: CRITICAL
-          ignore-unfixed: true   # ignore CVEs with no fix available yet
-  # -----------------------------------------------------------------------
-  # Job 5: Terraform validate
-  # Validates HCL syntax and internal consistency — no GCP credentials needed
-  # Runs on both push and PRs — catch Terraform errors before they reach main
-  # -----------------------------------------------------------------------
-  terraform:
-    name: Terraform validate
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # hashicorp/setup-terraform installs the correct Terraform version
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.6.0"
-
-      # terraform fmt --check fails if any .tf file isn't formatted correctly
-      # Same idea as ruff for Python — enforces consistent style
-      - name: Check Terraform formatting
-        run: terraform -chdir=terraform fmt -check -recursive
-
-      # terraform init -backend=false skips connecting to the GCS backend
-      # so we don't need GCP credentials in CI — just downloads the provider
-      - name: Terraform init (no backend)
-        run: terraform -chdir=terraform init -backend=false
-
-      # terraform validate checks syntax and internal consistency
-      # Catches: missing required fields, wrong types, undefined variables
-      - name: Terraform validate
-        run: terraform -chdir=terraform validate
+          ignore-unfixed: true
