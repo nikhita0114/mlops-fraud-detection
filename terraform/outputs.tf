@@ -1,18 +1,3 @@
-# =============================================================================
-# outputs.tf — Values exported after terraform apply
-# =============================================================================
-#
-# Outputs are printed after `terraform apply` completes.
-# They can also be read by other Terraform modules or CI/CD pipelines:
-#   terraform output -raw cluster_name
-#   terraform output -json > infra.json
-#
-# Use these outputs to configure kubectl and CI/CD:
-#   gcloud container clusters get-credentials $(terraform output -raw cluster_name) \
-#     --region $(terraform output -raw region) \
-#     --project $(terraform output -raw project_id)
-# =============================================================================
-
 output "project_id" {
   description = "GCP project ID"
   value       = var.project_id
@@ -36,8 +21,6 @@ output "cluster_endpoint" {
 
 output "registry_url" {
   description = "Artifact Registry URL — use as Docker image prefix"
-  # Format: LOCATION-docker.pkg.dev/PROJECT/REPOSITORY
-  # Example: us-central1-docker.pkg.dev/my-project/prod-fraud-api
   value = "${var.artifact_registry_location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.fraud_api.repository_id}"
 }
 

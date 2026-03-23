@@ -1,7 +1,3 @@
-# =============================================================================
-# registry.tf — Artifact Registry for Docker images
-# =============================================================================
-
 resource "google_artifact_registry_repository" "fraud_api" {
   location      = var.artifact_registry_location
   repository_id = "${var.environment}-fraud-api"
@@ -19,7 +15,6 @@ resource "google_artifact_registry_repository" "fraud_api" {
   }
 }
 
-# IAM binding — allow GKE nodes to pull images from this registry
 resource "google_artifact_registry_repository_iam_member" "gke_reader" {
   location   = google_artifact_registry_repository.fraud_api.location
   repository = google_artifact_registry_repository.fraud_api.name
